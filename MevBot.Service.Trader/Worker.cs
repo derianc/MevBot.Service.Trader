@@ -1,6 +1,8 @@
 using MevBot.Service.Data;
 using MevBot.Service.Trader.extensions;
 using MevBot.Service.Trader.rules;
+using MevBot.Service.Trader.services.interfaces;
+using Solnet.Programs.Utilities;
 using StackExchange.Redis;
 using System.Net.WebSockets;
 using System.Text;
@@ -16,6 +18,7 @@ namespace MevBot.Service.Trader
         private readonly IConfiguration _configuration;
         private readonly ConnectionMultiplexer _redis;
         private readonly IDatabase _redisDb;
+        private readonly ITradingService _tradingService;
 
         private readonly string _redisBuyQueue = "solana_buy_queue";
         private readonly string _redisTradeQueue = "solana_trade_queue";
@@ -23,10 +26,11 @@ namespace MevBot.Service.Trader
         private readonly string _rpcUrl;
         private readonly string _wsUrl;
 
-        public Worker(ILogger<Worker> logger, IConfiguration configuration)
+        public Worker(ILogger<Worker> logger, IConfiguration configuration, ITradingService tradingService)
         {
             _logger = logger;
             _configuration = configuration;
+            _tradingService = tradingService;
 
             _redisConnectionString = _configuration.GetValue<string>("Redis:REDIS_URL") ?? string.Empty;
             _rpcUrl = _configuration.GetValue<string>("Solana:RPC_URL") ?? string.Empty;
@@ -61,39 +65,6 @@ namespace MevBot.Service.Trader
                         var buyOrder = solanaTransaction.GetTradeData();
                         var transactionSignature = solanaTransaction?.@params?.result?.value?.signature;
 
-                        //using (ClientWebSocket ws = new ClientWebSocket())
-                        //{
-                        //    await ws.ConnectAsync(new Uri(_wsUrl), stoppingToken);
-
-                        //    string subscribeMessage = $@"
-                        //    {{
-                        //        ""jsonrpc"": ""2.0"",
-                        //        ""id"": 1,
-                        //        ""method"": ""signatureSubscribe"",
-                        //        ""params"": [
-                        //            {{ ""mentions"": [""{transactionSignature}""] }},
-                        //            {{ ""commitment"": ""confirmed"" }}
-                        //        ]
-                        //    }}";
-
-                        //    string messageJson = JsonSerializer.Serialize(subscribeMessage);
-                        //    var messageBytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(messageJson));
-                        //    await ws.SendAsync(messageBytes, WebSocketMessageType.Text, true, stoppingToken);
-
-                        //    // Continuously receive and process messages.
-                        //    while (ws.State == WebSocketState.Open && !stoppingToken.IsCancellationRequested)
-                        //    {
-                        //        string completeMessage = await ReceiveFullMessageAsync(ws, stoppingToken);
-
-                        //        if (completeMessage == null)
-                        //        {
-                        //            // If message is null, assume the connection closed.
-                        //            _logger.LogWarning("{time} - Received null message, breaking out", DateTimeOffset.Now);
-                        //            break;
-                        //        }
-                        //    }
-                        //}
-
                         var engine = new RuleEngine();
 
                         // _logger.LogInformation("{time} - Begin trade evaluation", DateTimeOffset.Now);
@@ -101,11 +72,17 @@ namespace MevBot.Service.Trader
                         
                         engine.EvaluateTrade(buyOrder);
 
-
-                        // if trade is profitable, push to trade queue
-
-
                         // _logger.LogInformation("{time} - End trade evaluation", DateTimeOffset.Now);
+
+
+                        // execute trade
+                        if (buyOrder.SequenceAndTimingPassed)
+                        {
+                            // Define the amount in SOL
+                            ulong amountLamports = SolHelper.ConvertToLamports(0.1m); // 0.1 SOL
+
+                            await _tradingService.Buy(amountLamports, "recipient_public_key");
+                        }
                     }
                 }
             }
