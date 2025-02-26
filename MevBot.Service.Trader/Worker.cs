@@ -19,22 +19,30 @@ namespace MevBot.Service.Trader
         private readonly ConnectionMultiplexer _redis;
         private readonly IDatabase _redisDb;
         private readonly ITradingService _tradingService;
+        private readonly IServiceProvider _serviceProvider;
 
         private readonly string _redisBuyQueue = "solana_buy_queue";
-        private readonly string _redisTradeQueue = "solana_trade_queue";
+        //private readonly string _redisTradeQueue = "solana_trade_queue";
         private readonly string _redisConnectionString;
         private readonly string _rpcUrl;
         private readonly string _wsUrl;
+        private readonly string _splTokenAddress;
+        private readonly string _walletAddress;
 
-        public Worker(ILogger<Worker> logger, IConfiguration configuration, ITradingService tradingService)
+        public Worker(ILogger<Worker> logger, 
+                      IConfiguration configuration, 
+                      IServiceProvider serviceProvider, 
+                      ITradingService tradingService)
         {
             _logger = logger;
             _configuration = configuration;
             _tradingService = tradingService;
+            _serviceProvider = serviceProvider;
 
             _redisConnectionString = _configuration.GetValue<string>("Redis:REDIS_URL") ?? string.Empty;
             _rpcUrl = _configuration.GetValue<string>("Solana:RPC_URL") ?? string.Empty;
             _wsUrl = _configuration.GetValue<string>("Solana:WsUrl") ?? string.Empty;
+            _splTokenAddress = _configuration.GetValue<string>("Solana:SPL_TOKEN_ADDRESS") ?? string.Empty;
 
             // Connect to Redis.
             var options = ConfigurationOptions.Parse(_redisConnectionString);
@@ -58,14 +66,13 @@ namespace MevBot.Service.Trader
 
                     // Deserialize the message.
                     var solanaTransaction = JsonSerializer.Deserialize<SolanaTransaction>(message);
-
                     if (solanaTransaction != null)
                     {
                         // Get the trade data from transaction
-                        var buyOrder = solanaTransaction.GetTradeData();
+                        var buyOrder = solanaTransaction.GetTradeData(_splTokenAddress);
                         var transactionSignature = solanaTransaction?.@params?.result?.value?.signature;
 
-                        var engine = new RuleEngine();
+                        var engine = new RuleEngine(_serviceProvider);
 
                         // _logger.LogInformation("{time} - Begin trade evaluation", DateTimeOffset.Now);
                                                 
@@ -78,39 +85,20 @@ namespace MevBot.Service.Trader
                         // execute trade
                         if (buyOrder.SequenceAndTimingPassed)
                         {
+
                             // Define the amount in SOL
                             ulong amountLamports = SolHelper.ConvertToLamports(0.1m); // 0.1 SOL
 
-                            await _tradingService.Buy(amountLamports, "recipient_public_key");
+                            // await _tradingService.Buy(amountLamports, "recipient_public_key");
+
+                            // await _tradingService.Sell(amountLamports, buyOrder.ExpectedAmountOut, 10, "buyer_public_key", "token_mint_address");
+
                         }
                     }
                 }
-            }
-        }
 
-        private async Task<string> ReceiveFullMessageAsync(ClientWebSocket ws, CancellationToken stoppingToken)
-        {
-            var buffer = new byte[4096];
-            using (var ms = new MemoryStream())
-            {
-                WebSocketReceiveResult result;
-                do
-                {
-                    result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), stoppingToken);
-                    if (result.MessageType == WebSocketMessageType.Close)
-                    {
-                        _logger.LogWarning("{time} - WebSocket closed by remote party", DateTimeOffset.Now);
-                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", stoppingToken);
-                        return null;
-                    }
-                    ms.Write(buffer, 0, result.Count);
-                } while (!result.EndOfMessage);
-
-                ms.Seek(0, SeekOrigin.Begin);
-                using (var reader = new StreamReader(ms, Encoding.UTF8))
-                {
-                    return await reader.ReadToEndAsync();
-                }
+                // Add a small delay to prevent overloading Redis
+                await Task.Delay(100000000, stoppingToken);
             }
         }
     }

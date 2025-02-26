@@ -12,8 +12,7 @@ namespace MevBot.Service.Trader.rules
             When()
                 .Match<TradeData>(() => trade,
                     t => t.SlotNumber > 0,                          // Slot exists
-                    t => t.ExpectedAmountOut >= t.MinimumReturn,   // Valid slippage tolerance
-                    t => t.AmountIn / t.NetworkLiquidity < 0.1m   // Trade size vs. liquidity
+                    t => t.ExpectedAmountOut >= t.MinimumReturn   // Valid slippage tolerance
                     
                     // t => t.PriorityFee > trade.VictimPriorityFee,  // Higher priority fee
                     // t => t.FrontRunTimestamp < t.VictimTimestamp,  // Front-run timing

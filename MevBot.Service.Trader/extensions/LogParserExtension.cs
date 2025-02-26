@@ -5,8 +5,13 @@ namespace MevBot.Service.Trader.extensions
 {
     public static class LogParserExtension
     {
-        public static TradeData GetTradeData(this SolanaTransaction transaction)
+        public static TradeData GetTradeData(this SolanaTransaction transaction, string tokens)
         {
+            // Split into individual tokens and trim whitespace.
+            var tokenList = tokens.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                                  .Select(token => token.Trim())
+                                  .ToList();
+
             var tradeData = new TradeData
             {
                 SlotNumber = transaction?.@params?.result?.context?.slot ?? 0,
@@ -21,7 +26,19 @@ namespace MevBot.Service.Trader.extensions
                 BeforeSourceBalance = Convert.ToDecimal(transaction?.GetValue(new Regex(@"before_source_balance:\s*(\d+)", RegexOptions.IgnoreCase))),
                 BeforeDestinationBalance = Convert.ToDecimal(transaction?.GetValue(new Regex(@"before_destination_balance:\s*(\d+)", RegexOptions.IgnoreCase))),
                 MinimumReturn = Convert.ToDecimal(transaction?.GetValue(new Regex(@"min_return:\s*(\d+)", RegexOptions.IgnoreCase))),
+
             };
+
+            // Iterate over tokenList and find the first occurrence in logs
+            foreach (var token in tokenList)
+            {
+                string? foundToken = transaction?.FindTokenInLogs(token);
+                if (!string.IsNullOrEmpty(foundToken))
+                {
+                    tradeData.TokenMintAddress = foundToken;
+                    break; // Stop at first match
+                }
+            }
 
             return tradeData;
         }
@@ -36,6 +53,18 @@ namespace MevBot.Service.Trader.extensions
                                           .FirstOrDefault() ?? string.Empty;
 
             return value;
+        }
+
+        private static string FindTokenInLogs(this SolanaTransaction transaction, string token)
+        {
+            var transactionLog = transaction.@params?.result?.value?.logs;
+
+            string tokenValue = transactionLog?.Select(log => Regex.Match(log, $@"\b{Regex.Escape(token)}\b", RegexOptions.IgnoreCase))
+                                              .Where(match => match.Success)
+                                              .Select(match => match.Value) // Only retrieve full token match
+                                              .FirstOrDefault() ?? string.Empty;
+
+            return tokenValue;
         }
     }
 }

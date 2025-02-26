@@ -4,7 +4,7 @@ using NRules.RuleModel;
 
 namespace MevBot.Service.Trader.rules
 {
-    public class SlippageToleranceRule : Rule
+    public class _04_SlippageToleranceRule : Rule
     {
         public override void Define()
         {
