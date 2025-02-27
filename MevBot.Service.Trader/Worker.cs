@@ -69,21 +69,14 @@ namespace MevBot.Service.Trader
                     if (solanaTransaction != null)
                     {
                         // Get the trade data from transaction
-                        var buyOrder = solanaTransaction.GetTradeData(_splTokenAddress);
-                        var transactionSignature = solanaTransaction?.@params?.result?.value?.signature;
-
+                        var victimTrade = solanaTransaction.GetTradeData(_splTokenAddress);
+                        
                         var engine = new RuleEngine(_serviceProvider);
 
-                        // _logger.LogInformation("{time} - Begin trade evaluation", DateTimeOffset.Now);
-                                                
-                        
-                        engine.EvaluateTrade(buyOrder);
-
-                        // _logger.LogInformation("{time} - End trade evaluation", DateTimeOffset.Now);
-
+                        engine.EvaluateTrade(victimTrade);
 
                         // execute trade
-                        if (buyOrder.SequenceAndTimingPassed)
+                        if (victimTrade.SequenceAndTimingPassed)
                         {
 
                             // Define the amount in SOL

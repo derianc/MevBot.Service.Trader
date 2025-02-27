@@ -15,7 +15,7 @@ namespace MevBot.Service.Trader.rules
     {
         private readonly string _wsUrl;
         private readonly string _rpcUrl;
-        private readonly Wallet _wallet;
+        private readonly Account _account;
         private readonly IRpcClient _rpcClient;
         private readonly string _walletPrivateKey;
         private readonly IConfiguration _configuration;
@@ -30,10 +30,7 @@ namespace MevBot.Service.Trader.rules
             _walletPrivateKey = _configuration.GetValue<string>("Solana:WALLET_PRIVATE_KEY") ?? string.Empty;
             _walletAddress = _configuration.GetValue<string>("Solana:WALLET_ADDRESS") ?? string.Empty;
 
-
-            // Generate a new 12-word mnemonic (you can choose 15, 18, 21, or 24 words as well)
-            var mnemonic = new Mnemonic(WordList.English, WordCount.Twelve);
-            _wallet = new Wallet(mnemonic);
+            _account = new Account(_walletPrivateKey, _walletAddress);
 
             _rpcClient = ClientFactory.GetClient(_rpcUrl);
         }
@@ -43,7 +40,7 @@ namespace MevBot.Service.Trader.rules
             var trade = new TradeData();
 
             When()
-                .Match<TradeData>(() => trade,
+                .Match(() => trade,
                     t => t.SlotNumber > 0,                          // Slot exists
                     t => t.ExpectedAmountOut >= t.MinimumReturn     // Valid slippage tolerance
                 );
@@ -70,15 +67,16 @@ namespace MevBot.Service.Trader.rules
             // 3. Build a preliminary "buy" transaction.
             // For demonstration, we simulate a buy by issuing a transfer instruction to a dummy recipient.
             var transactionBuilder = new TransactionBuilder()
-                .SetFeePayer(_wallet.Account)
+                //.SetFeePayer(_wallet.Account)
+                .SetFeePayer(_account)
                 .SetRecentBlockHash(recentBlockHash)
                 .AddInstruction(SystemProgram.Transfer(
-                    _wallet.Account.PublicKey,
+                    _account.PublicKey,
                     new PublicKey("11111111111111111111111111111111"),
                     amountLamports));
 
             // 4. Build the full transaction (returns a byte array).
-            var txBytes = transactionBuilder.Build(_wallet.Account);
+            var txBytes = transactionBuilder.Build(_account);
 
             // 5. Extract only the message portion from the transaction.
             // In Solana, the first byte is the signature count, and each signature is 64 bytes.
@@ -88,7 +86,7 @@ namespace MevBot.Service.Trader.rules
 
             // 6. Call the RPC client to get the fee for the transaction message.
             var feeResponse = await _rpcClient.GetFeeForMessageAsync(serializedMessage);
-            if (!feeResponse.WasSuccessful || feeResponse.Result.Value == null)
+            if (!feeResponse.WasSuccessful || feeResponse?.Result.Value == null)
                 throw new Exception("Failed to get fee for message.");
 
             ulong feeLamports = feeResponse.Result.Value;
@@ -113,6 +111,5 @@ namespace MevBot.Service.Trader.rules
             Array.Copy(txBytes, signatureBytesLength, messageBytes, 0, messageBytes.Length);
             return messageBytes;
         }
-
     }
 }

@@ -8,7 +8,7 @@ IHost host = Host.CreateDefaultBuilder(args)
     {
         services.AddSingleton<ITradingService, TradingService>();
         services.AddTransient<_02_EstimatedGasFeeRule>();
-        //services.AddTransient<_03_DexLiquidityRule>();
+        services.AddTransient<_03_DexLiquidityRule>();
         services.AddHostedService<Worker>();
     })
     .Build();

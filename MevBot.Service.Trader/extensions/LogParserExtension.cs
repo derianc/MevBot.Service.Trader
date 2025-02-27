@@ -1,4 +1,5 @@
 ﻿using MevBot.Service.Data;
+using Newtonsoft.Json.Linq;
 using System.Text.RegularExpressions;
 
 namespace MevBot.Service.Trader.extensions
@@ -26,7 +27,7 @@ namespace MevBot.Service.Trader.extensions
                 BeforeSourceBalance = Convert.ToDecimal(transaction?.GetValue(new Regex(@"before_source_balance:\s*(\d+)", RegexOptions.IgnoreCase))),
                 BeforeDestinationBalance = Convert.ToDecimal(transaction?.GetValue(new Regex(@"before_destination_balance:\s*(\d+)", RegexOptions.IgnoreCase))),
                 MinimumReturn = Convert.ToDecimal(transaction?.GetValue(new Regex(@"min_return:\s*(\d+)", RegexOptions.IgnoreCase))),
-
+                LiquidityPoolAddress = transaction?.ExtractLiquidityPoolAccount(new Regex(@"^Program log:\s*([1-9A-HJ-NP-Za-km-z]{43,44})$", RegexOptions.IgnoreCase)),
             };
 
             // Iterate over tokenList and find the first occurrence in logs
@@ -65,6 +66,18 @@ namespace MevBot.Service.Trader.extensions
                                               .FirstOrDefault() ?? string.Empty;
 
             return tokenValue;
+        }
+
+        private static List<string> ExtractLiquidityPoolAccount(this SolanaTransaction transaction, Regex regex)
+        {
+            var transactionLog = transaction.@params?.result?.value?.logs;
+
+            List<string>? values = transactionLog?.Select(log => regex.Match(log))
+                                                  .Where(match => match.Success)
+                                                  .Select(match => match.Groups[1].Value)
+                                                  .ToList();
+
+            return values;
         }
     }
 }

@@ -4,8 +4,6 @@ using Solnet.Rpc;
 using Solnet.Rpc.Builders;
 using Solnet.Wallet;
 using Solnet.Programs;
-using Newtonsoft.Json.Linq;
-using System.Text;
 using Solnet.Wallet.Bip39;
 
 namespace MevBot.Service.Trader.services
