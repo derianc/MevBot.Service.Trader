@@ -1,65 +1,36 @@
 ﻿using MevBot.Service.Trader.services.interfaces;
-using System.Net.Http.Json;
+using Solnet.Programs;
 using Solnet.Rpc;
 using Solnet.Rpc.Builders;
 using Solnet.Wallet;
-using Solnet.Programs;
-using Solnet.Wallet.Bip39;
+using System.Net.Http.Json;
 
 namespace MevBot.Service.Trader.services
 {
-    public class TradingService : ITradingService
+    public class SellService : ISellService
     {
-        private readonly string _wsUrl;
-        private readonly string _rpcUrl;
-        private readonly string _walletAddress;
-        private readonly string _walletPrivateKey;
 
         private readonly IConfiguration _configuration;
-        
-        private readonly Wallet _wallet;
+
+        private readonly string _rpcUrl;
         private readonly IRpcClient _rpcClient;
+
+        private readonly string _walletAddress;
+        private readonly string _walletPrivateKey;
+        private readonly Account _account;
 
         private static readonly HttpClient _httpClient = new HttpClient();
 
-        public TradingService(IConfiguration configuration)
+        public SellService(IConfiguration configuration)
         {
             _configuration = configuration;
+         
             _walletAddress = _configuration.GetValue<string>("Solana:WALLET_ADDRESS") ?? string.Empty;
             _walletPrivateKey = _configuration.GetValue<string>("Solana:WALLET_PRIVATE_KEY") ?? string.Empty;
+            _account = new Account(_walletPrivateKey, _walletAddress);
+            
             _rpcUrl = _configuration.GetValue<string>("Solana:RpcUrl") ?? string.Empty;
-            _wsUrl = _configuration.GetValue<string>("Solana:WsUrl") ?? string.Empty;
-
-            // Generate a new 12-word mnemonic (you can choose 15, 18, 21, or 24 words as well)
-            var mnemonic = new Mnemonic(WordList.English, WordCount.Twelve);
-            _wallet = new Wallet(mnemonic);
-
             _rpcClient = ClientFactory.GetClient(_rpcUrl);
-        }
-
-        public async Task<bool> Buy(ulong amountLamports, string recipientPublicKey)
-        {
-            var transaction = new TransactionBuilder()
-                .SetFeePayer(_wallet.Account) // Sender pays fees
-                .AddInstruction(SystemProgram.Transfer(
-                    _wallet.Account.PublicKey, 
-                    new PublicKey(recipientPublicKey), 
-                    amountLamports))
-                .Build(_wallet.Account);
-
-            // Send the transaction
-            var sendResult = await _rpcClient.SendTransactionAsync(transaction);
-
-            if (sendResult.WasSuccessful)
-            {
-                Console.WriteLine($"Transaction successful! TxHash: {sendResult.Result}");
-                return true;
-            }
-            else
-            {
-                Console.WriteLine($"Transaction failed: {sendResult.Reason}");
-                return false;
-            }
         }
 
         public async Task<bool> Sell(decimal amountToSell, decimal expectedAmountOut, ulong gasFee, string buyerPublicKey, string tokenMintAddress)
@@ -75,7 +46,7 @@ namespace MevBot.Service.Trader.services
 
                 // Derive seller's and buyer's associated token accounts.
                 PublicKey sellerTokenAccount = AssociatedTokenAccountProgram.DeriveAssociatedTokenAccount(
-                    _wallet.Account.PublicKey,
+                    _account.PublicKey,
                     new PublicKey(tokenMintAddress)
                 );
                 PublicKey buyerTokenAccount = AssociatedTokenAccountProgram.DeriveAssociatedTokenAccount(
@@ -90,24 +61,24 @@ namespace MevBot.Service.Trader.services
                 // --- STEP 4: Build the final transaction, adding a ComputeBudget instruction to include
                 // the gas fee as an extra tip for prioritization.
                 var finalBuilder = new TransactionBuilder()
-                    .SetFeePayer(_wallet.Account)
+                    .SetFeePayer(_account)
                     // The ComputeBudget instruction is added first.
                     .AddInstruction(ComputeBudgetProgram.RequestUnits(1_400_000, gasFee))
                     .AddInstruction(TokenProgram.Transfer(
                         sellerTokenAccount,
-                        buyerTokenAccount,
+                buyerTokenAccount,
                         amountLamports,
-                        _wallet.Account
+                        _account
                     ));
                 if (!buyerAccountExists)
                 {
                     finalBuilder.AddInstruction(AssociatedTokenAccountProgram.CreateAssociatedTokenAccount(
-                        _wallet.Account.PublicKey,
+                        _account.PublicKey,
                         new PublicKey(buyerPublicKey),
                         new PublicKey(tokenMintAddress)
                     ));
                 }
-                var finalTransaction = finalBuilder.Build(_wallet.Account);
+                var finalTransaction = finalBuilder.Build(_account);
 
                 // --- STEP 5: Send the final transaction.
                 var sendResult = await _rpcClient.SendTransactionAsync(finalTransaction);
@@ -130,6 +101,7 @@ namespace MevBot.Service.Trader.services
         }
 
 
+        #region  -- Private Methods --
 
         /// <summary>
         /// Fetches the real-time price of the token from CoinGecko.
@@ -156,5 +128,7 @@ namespace MevBot.Service.Trader.services
         {
             return (ulong)(amount * (decimal)Math.Pow(10, decimals));
         }
+
+        #endregion
     }
 }

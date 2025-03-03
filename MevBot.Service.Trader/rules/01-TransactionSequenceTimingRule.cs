@@ -1,5 +1,6 @@
 ﻿using MevBot.Service.Data;
 using NRules.Fluent.Dsl;
+using NRules.RuleModel;
 
 namespace MevBot.Service.Trader.rules
 {
@@ -23,10 +24,10 @@ namespace MevBot.Service.Trader.rules
                 );
 
             Then()
-                .Do(ctx => EvaluateSandwichOpportunity(trade));
+                .Do(ctx => EvaluateSandwichOpportunity(trade, ctx));
         }
 
-        private void EvaluateSandwichOpportunity(TradeData trade)
+        private void EvaluateSandwichOpportunity(TradeData trade, IContext ctx)
         {
             Console.WriteLine($"[Slot {trade.SlotNumber}] Checking for sandwich trade opportunity...");
 
@@ -34,6 +35,8 @@ namespace MevBot.Service.Trader.rules
             {
                 trade.SequenceAndTimingPassed = true;
             }
+
+            ctx.Update(trade);
         }
     }
 }

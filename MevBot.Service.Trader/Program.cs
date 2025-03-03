@@ -6,8 +6,9 @@ using MevBot.Service.Trader.services.interfaces;
 IHost host = Host.CreateDefaultBuilder(args)
     .ConfigureServices(services =>
     {
-        services.AddSingleton<ITradingService, TradingService>();
-        services.AddTransient<_02_EstimatedGasFeeRule>();
+        services.AddSingleton<IBuyService, BuyService>();
+        services.AddSingleton<ISellService, SellService>();
+        services.AddSingleton<ILookupService, LookupService>();
         services.AddTransient<_03_DexLiquidityRule>();
         services.AddHostedService<Worker>();
     })

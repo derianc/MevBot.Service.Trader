@@ -18,7 +18,7 @@ namespace MevBot.Service.Trader
         private readonly IConfiguration _configuration;
         private readonly ConnectionMultiplexer _redis;
         private readonly IDatabase _redisDb;
-        private readonly ITradingService _tradingService;
+        private readonly ILookupService _lookupService;
         private readonly IServiceProvider _serviceProvider;
 
         private readonly string _redisBuyQueue = "solana_buy_queue";
@@ -32,12 +32,12 @@ namespace MevBot.Service.Trader
         public Worker(ILogger<Worker> logger, 
                       IConfiguration configuration, 
                       IServiceProvider serviceProvider, 
-                      ITradingService tradingService)
+                      ILookupService lookupService)
         {
             _logger = logger;
             _configuration = configuration;
-            _tradingService = tradingService;
             _serviceProvider = serviceProvider;
+            _lookupService = lookupService;
 
             _redisConnectionString = _configuration.GetValue<string>("Redis:REDIS_URL") ?? string.Empty;
             _rpcUrl = _configuration.GetValue<string>("Solana:RPC_URL") ?? string.Empty;
@@ -70,9 +70,21 @@ namespace MevBot.Service.Trader
                     {
                         // Get the trade data from transaction
                         var victimTrade = solanaTransaction.GetTradeData(_splTokenAddress);
-                        
-                        var engine = new RuleEngine(_serviceProvider);
 
+                        // Get the liquidity
+                        var poolLiquidity = await _lookupService.GetDexLiquidity(victimTrade);
+
+                        // Get the gas fee
+                        var gasFee = await _lookupService.GetGasFee(victimTrade);
+
+                        // Get the optimal buy amount
+                        var buyAmount = await _lookupService.GetOptimalBuyAmount(victimTrade, gasFee, 0.003);
+
+                        // Get the slippage
+                        var slippage = _lookupService.GetSlippage(victimTrade, poolLiquidity);
+
+                        // run rules engine to determine if profitable trade
+                        var engine = new RuleEngine(_serviceProvider);
                         engine.EvaluateTrade(victimTrade);
 
                         // execute trade
