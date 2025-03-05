@@ -12,6 +12,8 @@ using Solnet.Wallet;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text;
+using Solnet.Programs.Abstract;
+using Solnet.Rpc.Types;
 
 namespace MevBot.Service.Trader.services
 {
@@ -28,6 +30,7 @@ namespace MevBot.Service.Trader.services
 
         private static readonly HttpClient httpClient = new HttpClient();
         private const string SolanaRpcUrl = "https://api.mainnet-beta.solana.com"; // Update if needed
+        private const string SolanaWsUrl = "wss://silent-maximum-cloud.solana-mainnet.quiknode.pro/a781cdadcc0dcf1ea41d55e0e663a060060dfe74"; // Update if needed
 
 
         // The SPL Token Program ID is constant.
@@ -48,14 +51,27 @@ namespace MevBot.Service.Trader.services
         public async Task<decimal> GetDexLiquidity(TradeData trade)
         {
             string? lpTokenMintAddress = trade?.LiquidityPoolAddress?.First();
+            
+            do
+            {
+                await GetLiquidityPoolsWebSocket(lpTokenMintAddress);
+            }
+            while (1 > 0);
 
-            if (string.IsNullOrEmpty(lpTokenMintAddress))
-                throw new ArgumentException("Liquidity pool address is not set.");
+            //foreach (var temp in trade.LiquidityPoolAddress)
+            //{
+            //    var blah = await GetLiquidityPoolAddress(temp);
+            //}
+
+
+            //if (string.IsNullOrEmpty(lpTokenMintAddress))
+            //    throw new ArgumentException("Liquidity pool address is not set.");
 
             // Fetch the liquidity pool address using the token mint address
-            var liquidityPoolAddress = await GetLiquidityPoolAddress(lpTokenMintAddress);
+            //var liquidityPoolAddress = await GetLiquidityPoolAddress(lpTokenMintAddress);
 
             // Fetch the reserve accounts for the liquidity pool
+            var liquidityPoolAddress = "DeNgVCLjqXr2Ln1xuZK5PhTSRgj8WoXvTVuXWjoCxmAB";
             var (reserveATokenAccount, reserveBTokenAccount) = await GetReserveAccounts(liquidityPoolAddress);
 
             // Step 1: Get Liquidity Pool Reserves
@@ -76,50 +92,102 @@ namespace MevBot.Service.Trader.services
             return liquidityPoolValue;
         }
 
-        private async Task<string> GetLiquidityPoolAddress(string? tokenMintAddress)
+        public async Task GetLiquidityPoolsWebSocket(string tokenMintAddress)
         {
+            var webSocketClient = new SolanaWebSocketClient(SolanaWsUrl, async (message) =>
+            {
+                Console.WriteLine($"Received message: {message}");
+            });
+
+            List<string> liquidityPools = new List<string>();
+
+            // Subscribe to all Raydium AMM pools
+            string[] raydiumAmmPrograms = new string[]
+            {
+                "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C", // New AMM
+                "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"  // Old AMM
+            };
+
             var requestPayload = new
             {
                 jsonrpc = "2.0",
                 id = 1,
-                method = "getProgramAccounts",
+                method = "programSubscribe",
                 @params = new object[]
                 {
                     "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C", // Raydium AMM Program ID
                     new
                     {
                         encoding = "jsonParsed",
+                        commitment = "finalized",
                         filters = new object[]
                         {
-                            new { dataSize = 322 }, // Raydium AMM liquidity pool size
-                            new { memcmp = new { offset = 0, bytes = tokenMintAddress } } // Find pool for this token
+                            new
+                            {
+                                memcmp = new
+                                {
+                                    offset = 0,  // Adjust offset based on where the liquidity pool address is stored
+                                    bytes = tokenMintAddress // Filter for the specific pool
+                                }
+                            }
                         }
                     }
                 }
             };
 
-            string jsonRequest = JsonSerializer.Serialize(requestPayload);
-            var content = new StringContent(jsonRequest, Encoding.UTF8, "application/json");
+            await webSocketClient.ConnectAsync();
+            await webSocketClient.SendAsync(requestPayload);
+            //await webSocketClient.DisconnectAsync();
+        }
 
-            HttpResponseMessage response = await httpClient.PostAsync(SolanaRpcUrl, content);
-            if (!response.IsSuccessStatusCode)
+        private async Task<string> GetLiquidityPoolAddress(string? tokenMintAddress)
+        {
+            var temp_rpcClient = ClientFactory.GetClient("https://ssc-dao.genesysgo.net/");
+
+            //string programId = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
+            tokenMintAddress = "So11111111111111111111111111111111111111112";
+            //string programId = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"; // Raydium AMM Program ID
+            string programId = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
+            try
             {
-                throw new Exception($"Failed to fetch liquidity pool address: {response.StatusCode}");
+                // Define filter for Raydium AMM Liquidity Pools
+                var filters = new MemCmp[]
+                {
+                    new MemCmp
+                    {
+                        Offset = 32, // Match at start of account data
+                        Bytes = tokenMintAddress // Replace with a relevant token mint address if needed
+                    }
+                };
+
+                // Query Solana RPC
+                var response = await temp_rpcClient.GetProgramAccountsAsync(
+                    new PublicKey(programId),
+                    Commitment.Confirmed
+                    ,322 // Raydium AMM liquidity pool size filter
+                    ,filters
+                );
+
+                if (!response.WasSuccessful || response.Result == null)
+                {
+                    Console.WriteLine("Failed to fetch program accounts.");
+                    return string.Empty;
+                }
+
+                Console.WriteLine($"Found {response?.Result?.Count} liquidity pools:");
+
+                foreach (var account in response.Result)
+                {
+                    Console.WriteLine($"Liquidity Pool Address: {account.PublicKey}");
+                }
+
+                return string.Empty;
             }
-
-            string jsonResponse = await response.Content.ReadAsStringAsync();
-            JsonDocument jsonDocument = JsonDocument.Parse(jsonResponse);
-
-            // Extract the first liquidity pool address from results
-            var accounts = jsonDocument.RootElement.GetProperty("result").EnumerateArray();
-
-            foreach (var account in accounts)
+            catch (Exception ex)
             {
-                string poolAddress = account.GetProperty("pubkey").GetString();
-                return poolAddress;
+                Console.WriteLine($"Error fetching program accounts: {ex.Message}");
+                return string.Empty;
             }
-
-            throw new Exception("No matching liquidity pool found.");
         }
 
         public async Task<ulong> GetGasFee(TradeData trade)
